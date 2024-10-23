@@ -3,65 +3,330 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GeoJSON to Shapefile Export</title>
-    <!-- Includi shp-write e FileSaver.js -->
-    <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
+    <title>WebGIS GeomaticFact</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol/ol.css" type="text/css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol-layerswitcher@v4.0.0/dist/ol-layerswitcher.css" />
+    <script src="https://cdn.jsdelivr.net/npm/ol/dist/ol.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ol-layerswitcher@v4.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shp-write@latest/dist/shpwrite.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        #logo-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+        }
+        #logo {
+            width: 150px;
+            height: auto;
+        }
+        .info {
+            position: absolute;
+            background-color: white;
+            bottom: 10px;
+            left: 10px;
+            padding: 10px;
+            border: 1px solid black;
+            max-width: 400px;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .layer-switcher-button {
+            background: url('img/layer1.png') no-repeat center center;
+            background-size: cover;
+            width: 45px;
+            height: 45px;
+            border: none;
+            cursor: pointer;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .save-layer-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        #temporary-layers-tab {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: white;
+            padding: 10px;
+            border: 1px solid black;
+            max-width: 300px;
+            max-height: 300px;
+            overflow-y: auto;
+            box-shadow: 0px 0px 10px rgba(0,0,0,0.5);
+            border-radius: 5px;
+        }
+        .layer-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .layer-entry button {
+            margin-left: 5px;
+            padding: 3px 10px;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
+    <div id="map" style="width: 100%; height: 500px;"></div>
+    
+    <button id="downloadShapefile" class="save-layer-btn" style="display: none;">Scarica Shapefile</button>
 
-    <h1>Convert GeoJSON to Shapefile</h1>
-    <button id="downloadShapefile">Download Shapefile</button>
+    <div id="temporary-layers-tab" class="hidden">
+        <h4>Layer temporanei</h4>
+        <ul id="temporary-layers-list"></ul>
+    </div>
 
     <script>
-        // Definisci un esempio di GeoJSON
-        var geojson = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [-90.0715, 29.9510]
-                    },
-                    "properties": {
-                        "name": "New Orleans"
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": [
-                            [-90.0715, 29.9510],
-                            [-89.9715, 29.8510]
-                        ]
-                    },
-                    "properties": {
-                        "name": "Line Example"
-                    }
-                }
-            ]
-        };
+        var draw;
+        var coordinateModeActive = false;
+        var measuringActive = false;
+        var editingActive = false;
+        var temporaryLayers = [];
 
-        // Funzione per esportare il GeoJSON come Shapefile
-        document.getElementById('downloadShapefile').addEventListener('click', function() {
-            try {
-                // Crea il file zip contenente il Shapefile
-                const blob = shpwrite.zip(geojson);
-                
-                if (blob) {
-                    console.log('ZIP creato correttamente.');
-                    // Usa FileSaver.js per scaricare il file ZIP
-                    saveAs(blob, 'shapefile.zip');
-                } else {
-                    console.error('Errore nella creazione del file ZIP.');
-                }
-            } catch (error) {
-                console.error('Errore durante la conversione:', error);
-            }
+        var osmLayer = new ol.layer.Tile({
+            source: new ol.source.OSM(),
+            title: 'OpenStreetMap',
+            type: 'base',
+            visible: true
         });
-    </script>
 
+        var esriLayer = new ol.layer.Tile({
+            source: new ol.source.XYZ({
+                url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            }),
+            title: 'Esri Satellite',
+            type: 'base',
+            visible: false
+        });
+
+        var limitiLayer = new ol.layer.Tile({
+            source: new ol.source.TileWMS({
+                url: 'http://localhost:8080/geoserver/Webgis/wms',
+                params: {'LAYERS': 'Webgis:limiti', 'TILED': true, 'INFO_FORMAT': 'application/json'},
+                serverType: 'geoserver',
+                crossOrigin: 'anonymous'
+            }),
+            title: 'Limiti Comunali',
+            visible: true,
+            opacity: 0.6
+        });
+
+        var source = new ol.source.Vector();
+        var vectorLayer = new ol.layer.Vector({
+            source: source,
+            style: new ol.style.Style({
+                fill: new ol.style.Fill({
+                    color: 'rgba(255, 255, 255, 0.2)',
+                }),
+                stroke: new ol.style.Stroke({
+                    color: '#ffcc33',
+                    width: 2,
+                }),
+                image: new ol.style.Circle({
+                    radius: 7,
+                    fill: new ol.style.Fill({
+                        color: '#ffcc33',
+                    }),
+                }),
+            }),
+        });
+
+        var tempLayerSource = new ol.source.Vector();
+        var tempLayer = new ol.layer.Vector({
+            source: tempLayerSource,
+            style: new ol.style.Style({
+                fill: new ol.style.Fill({
+                    color: 'rgba(0, 0, 255, 0.2)',
+                }),
+                stroke: new ol.style.Stroke({
+                    color: '#0000ff',
+                    width: 2,
+                }),
+                image: new ol.style.Circle({
+                    radius: 5,
+                    fill: new ol.style.Fill({
+                        color: '#0000ff',
+                    }),
+                }),
+            }),
+        });
+
+        var measureLayerSource = new ol.source.Vector();
+        var measureLayer = new ol.layer.Vector({
+            source: measureLayerSource,
+            style: new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 5,
+                    fill: new ol.style.Fill({
+                        color: '#ff0000',
+                    }),
+                }),
+            }),
+        });
+
+        var map = new ol.Map({
+            target: 'map',
+            layers: [osmLayer, esriLayer, limitiLayer, vectorLayer, tempLayer, measureLayer],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([12.5, 42.5]),
+                zoom: 5
+            })
+        });
+
+        var layerSwitcher = new ol.control.LayerSwitcher({
+            activationMode: 'click',
+            tipLabel: 'Layer',
+            groupSelectStyle: 'children'
+        });
+        map.addControl(layerSwitcher);
+
+        function updateTemporaryLayersTab() {
+            var list = document.getElementById('temporary-layers-list');
+            list.innerHTML = '';
+
+            temporaryLayers.forEach(function(layer) {
+                var li = document.createElement('li');
+                li.classList.add('layer-entry');
+                li.textContent = layer.name + " (" + layer.type + ")";
+                var deleteButton = document.createElement('button');
+                deleteButton.textContent = "X";
+                deleteButton.className = "delete-layer-btn";
+                deleteButton.onclick = function() {
+                    deleteLayer(layer.name);
+                };
+                var exportButton = document.createElement('button');
+                exportButton.textContent = "Export";
+                exportButton.className = "export-layer-btn";
+                exportButton.onclick = function() {
+                    showExportOptions(layer.name, layer.type);
+                };
+                li.appendChild(deleteButton);
+                li.appendChild(exportButton);
+                list.appendChild(li);
+            });
+        }
+
+        function showExportOptions(layerName, layerType) {
+            var exportOptionsDiv = document.createElement('div');
+            var formatSelect = document.createElement('select');
+            formatSelect.id = 'export-format';
+            var geojsonOption = document.createElement('option');
+            geojsonOption.value = 'geojson';
+            geojsonOption.textContent = 'GeoJSON';
+            formatSelect.appendChild(geojsonOption);
+            var shapefileOption = document.createElement('option');
+            shapefileOption.value = 'shapefile';
+            shapefileOption.textContent = 'Shapefile';
+            formatSelect.appendChild(shapefileOption);
+
+            var exportButton = document.createElement('button');
+            exportButton.textContent = 'Esporta';
+            exportButton.onclick = function() {
+                exportLayer(layerName, layerType, formatSelect.value);
+            };
+
+            exportOptionsDiv.appendChild(document.createTextNode('Scegli il formato di export: '));
+            exportOptionsDiv.appendChild(formatSelect);
+            exportOptionsDiv.appendChild(exportButton);
+
+            document.getElementById('temporary-layers-tab').appendChild(exportOptionsDiv);
+        }
+
+        function deleteLayer(layerName) {
+            temporaryLayers = temporaryLayers.filter(function(layer) {
+Sembra che il mio messaggio sia stato troncato. Ecco la continuazione e il completamento del codice.
+
+### Continuazione del codice:
+
+```html
+                return layer.name !== layerName;
+            });
+            var features = tempLayerSource.getFeatures();
+            features.forEach(function(feature) {
+                if (feature.get('name') === layerName) {
+                    tempLayerSource.removeFeature(feature);
+                }
+            });
+            updateTemporaryLayersTab();
+        }
+
+        function exportLayer(layerName, layerType, format) {
+            var features = tempLayerSource.getFeatures();
+            var featuresToExport = features.filter(function(feature) {
+                return feature.get('name') === layerName;
+            });
+
+            if (featuresToExport.length === 0) {
+                alert('Nessun dato trovato per il layer selezionato.');
+                return;
+            }
+
+            if (format === 'geojson') {
+                var geojsonFormat = new ol.format.GeoJSON({
+                    featureProjection: 'EPSG:3857'
+                });
+                var geojson = geojsonFormat.writeFeatures(featuresToExport);
+                var blob = new Blob([geojson], { type: 'application/json' });
+                saveAs(blob, layerName + '.geojson');
+            } else if (format === 'shapefile') {
+                var geojsonFormat = new ol.format.GeoJSON({
+                    featureProjection: 'EPSG:3857'
+                });
+                var geojson = JSON.parse(geojsonFormat.writeFeatures(featuresToExport));
+
+                // Crea il file ZIP del Shapefile e scarica
+                shpwrite.zip(geojson, { outputType: "blob" }).then(function(zipBlob) {
+                    saveAs(zipBlob, layerName + '.zip'); // Usa FileSaver.js per il download
+                }).catch(function(error) {
+                    console.error('Errore durante la conversione:', error);
+                });
+            }
+        }
+
+        // Funzione per il download Shapefile con un esempio
+        document.getElementById('downloadShapefile').addEventListener('click', function() {
+            exportLayer('exampleLayer', 'polygon', 'shapefile');
+        });
+
+        function addInteraction(type) {
+            if (draw) {
+                map.removeInteraction(draw);
+            }
+
+            draw = new ol.interaction.Draw({
+                source: tempLayerSource,
+                type: type
+            });
+
+            draw.on('drawstart', function(event) {
+                event.feature.set('name', document.getElementById('layer-name').value);
+            });
+
+            map.addInteraction(draw);
+
+            draw.on('drawend', function(event) {
+                var feature = event.feature;
+                console.log('Feature aggiunta:', feature);
+            });
+        }
+    </script>
 </body>
 </html>
