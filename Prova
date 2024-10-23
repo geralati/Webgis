@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoJSON to Shapefile Export</title>
+    <!-- Includi shp-write e FileSaver.js -->
+    <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+
+    <h1>Convert GeoJSON to Shapefile</h1>
+    <button id="downloadShapefile">Download Shapefile</button>
+
+    <script>
+        // Definisci un esempio di GeoJSON
+        var geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [-90.0715, 29.9510]
+                    },
+                    "properties": {
+                        "name": "New Orleans"
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [
+                            [-90.0715, 29.9510],
+                            [-89.9715, 29.8510]
+                        ]
+                    },
+                    "properties": {
+                        "name": "Line Example"
+                    }
+                }
+            ]
+        };
+
+        // Funzione per esportare il GeoJSON come Shapefile
+        document.getElementById('downloadShapefile').addEventListener('click', function() {
+            try {
+                // Crea il file zip contenente il Shapefile
+                const blob = shpwrite.zip(geojson);
+                
+                if (blob) {
+                    console.log('ZIP creato correttamente.');
+                    // Usa FileSaver.js per scaricare il file ZIP
+                    saveAs(blob, 'shapefile.zip');
+                } else {
+                    console.error('Errore nella creazione del file ZIP.');
+                }
+            } catch (error) {
+                console.error('Errore durante la conversione:', error);
+            }
+        });
+    </script>
+
+</body>
+</html>
